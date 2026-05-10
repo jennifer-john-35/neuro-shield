@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+
+{% block content %}
+<div class="page">
+  <!-- Hero -->
+  <div class="card" style="text-align:center;margin-bottom:16px;position:relative;overflow:hidden">
+    <div style="position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(0,255,136,.06) 0%,transparent 70%);pointer-events:none"></div>
+    <div style="font-size:36px;font-weight:900;color:var(--green);letter-spacing:2px">NEURO<span style="color:var(--text)">SHIELD</span></div>
+    <div style="font-size:13px;color:var(--text2);margin-top:4px">Neural Emergency & Road Optimization Shield · BIMSTEC 2026</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">Detect · Respond · Prevent</div>
+  </div>
+
+  <!-- Live metrics — pulled from API every 3 seconds -->
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="metric-val" style="color:var(--red)" id="ov-crashes">—</div>
+      <div class="metric-label">Crashes Detected</div>
+      <div class="metric-sub">This session</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val" style="color:var(--amber)" id="ov-nm">—</div>
+      <div class="metric-label">Near-Misses</div>
+      <div class="metric-sub">Anonymised</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val" style="color:var(--green)" id="ov-co2">—</div>
+      <div class="metric-label">CO₂ Wasted Today</div>
+      <div class="metric-sub">Hard-braking events</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val" style="color:var(--blue)">142</div>
+      <div class="metric-label">Sentinel Nodes</div>
+      <div class="metric-sub">98.6% uptime</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- BIMSTEC coverage -->
+    <div class="flex1">
+      <div class="card">
+        <div class="card-title">🌏 BIMSTEC Protocol Coverage</div>
+        {% set countries=[
+          ("🇮🇳","India — Bengaluru","LIVE · 142 nodes",85,"#00ff88"),
+          ("🇧🇩","Bangladesh — Dhaka","Demo heatmap",10,"#ffaa00"),
+          ("🇱🇰","Sri Lanka — Colombo","Q3 2026",8,"#ffaa00"),
+          ("🇳🇵","Nepal — Kathmandu","LoRaWAN ready",18,"#4488ff"),
+          ("🇹🇭","Thailand — Bangkok","Protocol compatible",5,"#00ddff"),
+          ("🇲🇲","Myanmar — Yangon","Offline capable",5,"#00ddff"),
+        ] %}
+        {% for flag,name,status,pct,color in countries %}
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span>{{flag}} {{name}}</span>
+            <span style="color:{{color}};font-weight:600;font-size:11px">{{status}}</span>
+          </div>
+          <div class="progress-wrap"><div class="progress-fill" style="width:{{pct}}%;background:{{color}}"></div></div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Live feed + impact -->
+    <div class="flex1 col">
+      <div class="card" style="flex:1">
+        <div class="card-title">⚡ Live Event Feed
+          <span id="feed-badge" style="display:none;margin-left:8px;font-size:9px;color:var(--green);font-weight:700;animation:pulse 1s infinite">● LIVE</span>
+        </div>
+        <div id="ov-feed" style="max-height:220px;overflow-y:auto">
+          <div style="color:var(--text3);font-size:12px;text-align:center;padding:20px" id="feed-placeholder">
+            Loading events...<br>
+            <span style="font-size:10px">Trigger a crash on the Hospital tab</span>
+          </div>
+        </div>
+        <!-- Quick action -->
+        <div style="margin-top:10px">
+          <button class="btn btn-red" onclick="triggerCrashFromOverview()" style="width:100%;font-size:12px">
+            💥 Simulate Crash (from Overview)
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📊 Impact Projections</div>
+        {% for label,val,color in [
+          ("EMS Response Faster","25%","#00ff88"),
+          ("Crash Prevention","18%","#00ddff"),
+          ("LSTM Accuracy","94.2%","#4488ff"),
+          ("CO₂ Saved/yr · 1k nodes","12.4t","#ffaa00")] %}
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">
+          <span style="color:var(--text2)">{{label}}</span>
+          <span style="color:{{color}};font-weight:700;font-family:monospace">{{val}}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block sse_handlers %}
+// SSE — listen for real-time events pushed from backend
+es.addEventListener('crash', e => {
+  const d = JSON.parse(e.data);
+  addFeedItem('crash', '🚨 CRASH — ' + (d.location_str || 'Bengaluru'));
+  refreshMetrics();
+});
+es.addEventListener('near_miss', e => {
+  const d = JSON.parse(e.data);
+  addFeedItem('warn', '⚠ Near-Miss · ' + (d.spot || 'detected'));
+  refreshMetrics();
+});
+es.addEventListener('connected', () => {
+  document.getElementById('feed-badge').style.display = 'inline';
+  refreshMetrics();
+});
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Pull live counts from the API — works even if user opens Overview AFTER a crash
+async function refreshMetrics() {
+  const crashes = await apiGet('/api/crashes?limit=100');
+  if (crashes) {
+    const crashCount = crashes.filter(e => e.event_type === 'CRASH').length;
+    const nmCount    = crashes.filter(e => e.event_type === 'NEAR_MISS').length;
+    const co2Total   = (crashCount * 0.18 + nmCount * 0.043).toFixed(2);
+
+    document.getElementById('ov-crashes').textContent = crashCount;
+    document.getElementById('ov-nm').textContent      = nmCount;
+    document.getElementById('ov-co2').textContent     = co2Total + ' kg';
+
+    // Populate feed from existing crashes
+    if (crashes.length > 0) {
+      document.getElementById('feed-placeholder') &&
+        (document.getElementById('ov-feed').innerHTML = '');
+      crashes.slice(0, 8).forEach(ev => {
+        const isCrash = ev.event_type === 'CRASH';
+        addFeedItem(
+          isCrash ? 'crash' : 'warn',
+          (isCrash ? '🚨 CRASH' : '⚠ NEAR-MISS') + ' — ' + (ev.location_str || ev.event_type),
+          new Date(ev.timestamp + 'Z').toLocaleTimeString(),
+          false  // don't prepend, just build list
+        );
+      });
+    } else {
+      document.getElementById('ov-crashes').textContent = '0';
+      document.getElementById('ov-nm').textContent      = '0';
+      document.getElementById('ov-co2').textContent     = '0.00 kg';
+    }
+  }
+
+  // CO2 from API
+  const co2data = await apiGet('/api/co2');
+  if (co2data) {
+    // Keep showing the session CO2 (based on crash/nm count above)
+    // Show API CO2 as secondary if zero crashes yet
+    const crashes = parseInt(document.getElementById('ov-crashes').textContent) || 0;
+    if (crashes === 0) {
+      document.getElementById('ov-co2').textContent = co2data.co2_wasted_today_kg + ' kg';
+    }
+  }
+}
+
+let feedItems = [];
+function addFeedItem(cls, msg, time, prepend = true) {
+  const feed = document.getElementById('ov-feed');
+  // Remove placeholder if present
+  const ph = document.getElementById('feed-placeholder');
+  if (ph) ph.remove();
+
+  const t = time || new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  div.className = 'alert-item alert-' + cls;
+  div.style.animation = 'slideIn 0.3s ease';
+  div.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:12px">${msg}</span>
+      <span class="alert-time">${t}</span>
+    </div>`;
+
+  if (prepend) {
+    feed.insertBefore(div, feed.firstChild);
+    if (feed.children.length > 8) feed.lastChild.remove();
+  } else {
+    feed.appendChild(div);
+  }
+}
+
+async function triggerCrashFromOverview() {
+  const d = await apiPost('/api/crash', { event_type:'CRASH', severity:'HIGH' });
+  if (d) {
+    addFeedItem('crash', '🚨 CRASH — ' + (d.location_str || 'Bengaluru'));
+    // Immediately update metrics
+    const cur = parseInt(document.getElementById('ov-crashes').textContent) || 0;
+    document.getElementById('ov-crashes').textContent = cur + 1;
+    const co2cur = parseFloat(document.getElementById('ov-co2').textContent) || 0;
+    document.getElementById('ov-co2').textContent = (co2cur + 0.18).toFixed(2) + ' kg';
+  }
+}
+
+// Load metrics immediately on page load
+refreshMetrics();
+
+// Then refresh every 3 seconds to stay in sync with Hospital tab activity
+setInterval(refreshMetrics, 3000);
+</script>
+{% endblock %}

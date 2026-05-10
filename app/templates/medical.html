@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Medical ID{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="row">
+    <!-- Scan panel -->
+    <div class="flex1 col">
+      <div class="card">
+        <div class="card-title">🪪 Scan QR — First Responder View</div>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <input id="scan-id" value="QR-NS-2847" placeholder="Medical ID e.g. QR-NS-2847" style="flex:1"/>
+          <button class="btn btn-green" onclick="scanID()" style="white-space:nowrap">📱 Scan</button>
+        </div>
+        <div id="scan-result" style="color:var(--text3);font-size:12px;text-align:center;padding:20px">
+          Enter a Medical ID and click Scan.<br>
+          <span style="font-size:10px">Try: QR-NS-2847 (demo rider)</span>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="card">
+        <div class="card-title">How It Works</div>
+        {% for n,t in [("1","Rider registers Medical ID in this portal"),("2","QR sticker printed and attached to helmet visor"),("3","On crash: Sentinel Node sends Medical ID with alert"),("4","First responder scans QR → instant medical data"),("5","No raw data stored in cloud — encrypted reference only")] %}
+        <div style="display:flex;gap:10px;margin-bottom:8px;align-items:flex-start">
+          <div style="min-width:22px;height:22px;border-radius:50%;background:rgba(68,136,255,.2);border:1px solid var(--blue);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--blue);font-weight:700">{{n}}</div>
+          <div style="font-size:12px;color:var(--text2);padding-top:3px">{{t}}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Create panel -->
+    <div class="flex1 col">
+      <div class="card">
+        <div class="card-title">+ Create New Medical ID</div>
+        <input id="f-name"    placeholder="Full Name *"                   style="margin-bottom:8px"/>
+        <input id="f-blood"   placeholder="Blood Group (e.g. B+) *"      style="margin-bottom:8px"/>
+        <input id="f-allergy" placeholder="Allergies (comma separated)"   style="margin-bottom:8px"/>
+        <input id="f-cond"    placeholder="Medical Conditions"            style="margin-bottom:8px"/>
+        <input id="f-cname"   placeholder="Emergency Contact Name"        style="margin-bottom:8px"/>
+        <input id="f-cphone"  placeholder="Emergency Contact Phone"       style="margin-bottom:12px"/>
+        <button class="btn btn-blue" onclick="createID()" style="width:100%;padding:11px 0;font-size:13px">
+          ✓ Generate Medical ID + QR Code
+        </button>
+        <div id="create-result" style="display:none;margin-top:12px;padding:12px;background:rgba(0,255,136,.07);border:1px solid var(--green2);border-radius:10px"></div>
+      </div>
+
+      <!-- Blood group guide -->
+      <div class="card">
+        <div class="card-title">Blood Group Quick Reference</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+          {% for bg in ["A+","A-","B+","B-","O+","O-","AB+","AB-"] %}
+          <div style="background:rgba(255,64,96,.1);border:1px solid rgba(255,64,96,.3);border-radius:8px;padding:8px 4px;text-align:center">
+            <div style="font-size:16px;font-weight:800;color:var(--red);font-family:monospace">{{bg}}</div>
+          </div>
+          {% endfor %}
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text3);line-height:1.7">
+          <span style="color:var(--amber)">O-</span> = Universal donor ·
+          <span style="color:var(--blue)">AB+</span> = Universal recipient
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function scanID(){
+  const mid=document.getElementById('scan-id').value.trim();
+  if(!mid) return;
+  const d=await apiGet('/api/medical/'+mid);
+  const box=document.getElementById('scan-result');
+  if(!d||d.error){
+    box.innerHTML='<div style="color:var(--red);font-size:12px;text-align:center;padding:16px">Medical ID not found. Try QR-NS-2847</div>';
+    return;
+  }
+  const allergies=(d.allergies||[]).join(', ')||'None';
+  const conditions=(d.conditions||[]).join(', ')||'None';
+  box.innerHTML=`
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px">
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        <div style="background:#fff;border-radius:8px;padding:6px;display:inline-block">
+          <img src="/api/medical/${mid}/qr" width="90" height="90" style="display:block;border-radius:4px" onerror="this.style.display='none'"/>
+        </div>
+        <div style="flex:1">
+          <div style="font-size:18px;font-weight:700">${d.name}</div>
+          <span style="display:inline-block;padding:3px 12px;border-radius:12px;background:rgba(255,64,96,.15);border:1px solid var(--red);color:var(--red);font-size:14px;font-weight:800;margin:6px 0">${d.blood_group}</span>
+          <div style="font-size:11px;color:var(--text3)">ID: <span style="color:var(--green);font-family:monospace">${mid}</span></div>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="detail-row"><span class="detail-key">⚠ Allergies</span><span class="detail-val" style="color:${allergies!=='None'?'var(--amber)':'var(--text)'};font-weight:${allergies!=='None'?700:400}">${allergies}</span></div>
+        <div class="detail-row"><span class="detail-key">💊 Conditions</span><span class="detail-val">${conditions}</span></div>
+        <div class="detail-row"><span class="detail-key">📞 Emergency</span><span class="detail-val" style="color:var(--blue)">${d.emergency_contact_name} · ${d.emergency_contact_phone}</span></div>
+        <div class="detail-row"><span class="detail-key">🏥 Hospital</span><span class="detail-val" style="color:var(--green)">${d.nearest_hospital||'N/A'}</span></div>
+      </div>
+      ${allergies!=='None'?`<div style="margin-top:10px;padding:8px 12px;background:rgba(255,64,96,.1);border-radius:8px;border:1px solid rgba(255,64,96,.4);font-size:12px;color:var(--red);font-weight:600">🚫 ALLERGY ALERT — Do NOT administer: ${allergies}</div>`:''}
+    </div>`;
+}
+
+async function createID(){
+  const name=document.getElementById('f-name').value.trim();
+  const blood=document.getElementById('f-blood').value.trim();
+  if(!name||!blood){alert('Name and Blood Group are required');return;}
+  const payload={
+    name,blood_group:blood,
+    allergies:document.getElementById('f-allergy').value.split(',').map(s=>s.trim()).filter(Boolean),
+    conditions:document.getElementById('f-cond').value.split(',').map(s=>s.trim()).filter(Boolean),
+    emergency_contact_name:document.getElementById('f-cname').value,
+    emergency_contact_phone:document.getElementById('f-cphone').value,
+    nearest_hospital:'Manipal Hospital',
+  };
+  const d=await apiPost('/api/medical/create',payload);
+  if(!d){return;}
+  const box=document.getElementById('create-result');
+  box.style.display='block';
+  box.innerHTML=`
+    <div style="display:flex;gap:14px;align-items:center">
+      <div style="background:#fff;border-radius:8px;padding:6px">
+        <img src="/api/medical/${d.medical_id}/qr" width="80" height="80" style="display:block;border-radius:4px"/>
+      </div>
+      <div>
+        <div style="color:var(--green);font-weight:700;margin-bottom:4px">✓ Medical ID Created</div>
+        <div style="font-family:monospace;font-size:16px;margin-bottom:4px">${d.medical_id}</div>
+        <div style="font-size:11px;color:var(--text2)">Print and attach to helmet visor.</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Scan the ID above to verify.</div>
+        <button onclick="document.getElementById('scan-id').value='${d.medical_id}';scanID()" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--blue);background:rgba(68,136,255,.1);color:var(--blue);cursor:pointer;font-family:inherit;font-size:11px">Verify →</button>
+      </div>
+    </div>`;
+  // Clear form
+  ['f-name','f-blood','f-allergy','f-cond','f-cname','f-cphone'].forEach(id=>document.getElementById(id).value='');
+}
+</script>
+{% endblock %}

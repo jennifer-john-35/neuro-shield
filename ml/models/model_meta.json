@@ -1,0 +1,11 @@
+{
+  "classes": [
+    "NORMAL",
+    "HARD_BRAKE",
+    "POTHOLE",
+    "SWERVE",
+    "CRASH"
+  ],
+  "model": "RandomForest",
+  "test_accuracy": 1.0
+}

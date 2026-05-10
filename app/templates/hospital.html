@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Hospital Dashboard{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div id="api-banner" style="background:rgba(0,255,136,.07);border:1px solid #00cc6a;border-radius:8px;padding:7px 14px;margin-bottom:12px;font-size:12px;color:var(--green)">
+    ✓ SSE Connected — crashes appear instantly
+  </div>
+
+  <!-- Metrics -->
+  <div class="metric-grid">
+    <div class="metric"><div class="metric-val" style="color:var(--red)" id="h-crashes">0</div><div class="metric-label">Crashes Today</div></div>
+    <div class="metric"><div class="metric-val" style="color:var(--green)" id="h-eta">4.2m</div><div class="metric-label">Avg EMS ETA</div></div>
+    <div class="metric"><div class="metric-val" style="color:var(--blue)">142</div><div class="metric-label">Nodes Active</div></div>
+    <div class="metric"><div class="metric-val" style="color:var(--amber)">38%</div><div class="metric-label">Time Saved</div></div>
+  </div>
+
+  <div class="row">
+    <!-- Left: map + feed -->
+    <div style="flex:1.6" class="col">
+      <!-- CRASH MAP -->
+      <div class="card">
+        <div class="card-title">🗺 Live Crash Location Map <span id="map-badge" style="color:var(--red);font-size:10px;display:none">● CRASH ACTIVE</span></div>
+        <div id="crash-map" class="map-wrap" style="height:240px"></div>
+      </div>
+
+      <!-- Controls + Feed -->
+      <div class="card">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-red" onclick="triggerCrash()">💥 Simulate Crash</button>
+          <button class="btn btn-amber" onclick="triggerNearMiss()">⚠ Near-Miss</button>
+          <button class="btn btn-blue" onclick="clearFeed()">🗑 Clear</button>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            {% for f in ['ALL','CRASH','NEAR_MISS'] %}
+            <button onclick="setFilter('{{f}}')" id="filter-{{f}}" class="btn" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);color:var(--text3);background:transparent">{{f.replace('_',' ')}}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <div id="crash-feed" style="max-height:320px;overflow-y:auto">
+          <div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">No events — click <b style="color:var(--red)">Simulate Crash</b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div style="width:240px" class="col">
+      <!-- V2X -->
+      <div class="card" id="v2x-card">
+        <div class="card-title" id="v2x-title">📡 V2X Broadcast</div>
+        {% for plate,type,dist in [("KA 01 AB 1234","Car",120),("KA 05 CD 5678","Truck",280),("TN 22 EF 9012","Bike",340)] %}
+        <div style="background:var(--bg3);border-radius:8px;padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border)">
+          <div><div style="font-size:11px;font-weight:600">{{plate}}</div><div style="font-size:10px;color:var(--text3)">{{type}} · {{dist}}m</div></div>
+          <span class="v2x-status" style="font-size:10px;color:var(--text3);font-weight:700">STANDBY</span>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- TTS -->
+      <div class="card">
+        <div class="card-title">🔊 TTS Alert</div>
+        <div style="font-size:11px;color:var(--text2);line-height:1.8">
+          <div>Auto-detected: <span style="color:var(--cyan)" id="tts-lang">—</span></div>
+          <div style="margin-top:6px;color:var(--text3);font-style:italic;font-size:10px" id="tts-msg">Awaiting crash...</div>
+        </div>
+      </div>
+
+      <!-- System -->
+      <div class="card">
+        <div class="card-title">🔌 System Status</div>
+        {% for k,v,c in [("SSE Stream","Connected","#00ff88"),("Flask API","Online","#00ff88"),("LoRaWAN","Standby","#ffaa00"),("Federated","Syncing","#4488ff")] %}
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--border)">
+          <span style="color:var(--text2)">{{k}}</span>
+          <span style="color:{{c}};font-weight:600">{{v}}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Map setup
+const map = L.map('crash-map',{center:[12.9351,77.6245],zoom:12});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
+let crashMarker=null, hospMarker=null, lineLayer=null;
+
+function showCrashOnMap(ev){
+  if(crashMarker){crashMarker.remove();hospMarker&&hospMarker.remove();lineLayer&&lineLayer.remove();}
+  const icon=L.divIcon({className:'',iconSize:[40,40],iconAnchor:[20,20],html:`
+    <div style="position:relative;width:40px;height:40px">
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:40px;height:40px;border-radius:50%;background:rgba(255,64,96,.2);border:2px solid rgba(255,64,96,.5);animation:pr 1.5s infinite"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:#ff4060;box-shadow:0 0 12px #ff4060"></div>
+    </div>
+    <style>@keyframes pr{0%{transform:translate(-50%,-50%) scale(.8);opacity:1}100%{transform:translate(-50%,-50%) scale(2);opacity:0}}</style>`});
+  const hIcon=L.divIcon({className:'',iconSize:[14,14],iconAnchor:[7,7],html:`<div style="width:14px;height:14px;border-radius:50%;background:#4488ff;box-shadow:0 0 10px #4488ff;border:2px solid #fff"></div>`});
+  crashMarker=L.marker([ev.lat,ev.lon],{icon}).addTo(map)
+    .bindPopup(`<div style="font-family:system-ui"><b style="color:#ff4060">🚨 CRASH</b><br><b>${ev.rider_name}</b> · <span style="color:#ff4060;font-weight:800">${ev.blood_group}</span><br><span style="color:#ffaa00;font-size:11px">⚠ ${ev.allergy}</span><br><span style="color:#4488ff;font-size:11px">→ ${ev.hospital}</span></div>`,{maxWidth:220}).openPopup();
+  const hlat=ev.lat+0.015,hlon=ev.lon+0.01;
+  hospMarker=L.marker([hlat,hlon],{icon:hIcon}).addTo(map)
+    .bindPopup(`<div style="font-family:system-ui"><b style="color:#4488ff">🏥 ${ev.hospital}</b><br><span style="font-size:11px;color:#8b9ec7">ETA: ${ev.ems_eta} min</span></div>`);
+  lineLayer=L.polyline([[ev.lat,ev.lon],[hlat,hlon]],{color:'#4488ff',weight:2,dashArray:'5,5',opacity:.7}).addTo(map);
+  map.setView([ev.lat,ev.lon],14,{animate:true});
+  document.getElementById('map-badge').style.display='inline';
+}
+
+// Feed management
+let allEvents=[], currentFilter='ALL';
+function setFilter(f){
+  currentFilter=f;
+  ['ALL','CRASH','NEAR_MISS'].forEach(x=>{
+    const b=document.getElementById('filter-'+x);
+    b.style.borderColor=x===f?'var(--blue)':'var(--border)';
+    b.style.color=x===f?'var(--blue)':'var(--text3)';
+    b.style.background=x===f?'rgba(68,136,255,.15)':'transparent';
+  });
+  renderFeed();
+}
+
+function renderFeed(){
+  const feed=document.getElementById('crash-feed');
+  const filtered=currentFilter==='ALL'?allEvents:allEvents.filter(e=>e.event_type===currentFilter);
+  if(!filtered.length){feed.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">No events</div>';return;}
+  feed.innerHTML=filtered.map(ev=>{
+    const color=ev.event_type==='CRASH'?'var(--red)':'var(--amber)';
+    const t=new Date(ev.timestamp+'Z').toLocaleTimeString();
+    return `<div class="alert-item alert-${ev.event_type==='CRASH'?'crash':'warn'}" onclick="this.querySelector('.detail').style.display=this.querySelector('.detail').style.display==='none'?'block':'none'">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="alert-type" style="color:${color}">${ev.event_type==='CRASH'?'🚨':'⚠'} ${ev.event_type.replace('_',' ')}</span>
+        <div style="display:flex;gap:10px;align-items:center">
+          ${ev.ems_eta?`<span style="font-size:11px;color:var(--amber);font-weight:600">ETA ${ev.ems_eta}m</span>`:''}
+          <span class="alert-time">${t}</span>
+        </div>
+      </div>
+      <div class="alert-loc">${ev.location_str||''}</div>
+      <div class="detail" style="margin-top:10px;padding-top:10px;border-top:1px solid ${color}33;display:none">
+        <div style="display:flex;gap:8px">
+          <div style="flex:1;background:var(--bg3);border-radius:8px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:3px">RIDER</div>
+            <div style="font-size:13px;font-weight:700">${ev.rider_name}</div>
+            <div style="margin-top:4px;display:flex;gap:6px;align-items:center">
+              <span style="padding:1px 8px;border-radius:10px;background:rgba(255,64,96,.15);border:1px solid var(--red);color:var(--red);font-size:11px;font-weight:800">${ev.blood_group}</span>
+              ${ev.allergy!=='None'?`<span style="font-size:11px;color:var(--amber)">⚠ ${ev.allergy}</span>`:''}
+            </div>
+          </div>
+          <div style="flex:1;background:var(--bg3);border-radius:8px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:3px">HOSPITAL</div>
+            <div style="font-size:12px;font-weight:600;color:var(--blue)">${ev.hospital}</div>
+            <div style="font-size:11px;color:var(--amber);margin-top:3px">🚑 ${ev.ems_eta} min</div>
+          </div>
+        </div>
+        ${ev.allergy!=='None'?`<div style="margin-top:8px;font-size:11px;color:var(--red);background:rgba(255,64,96,.08);border-radius:6px;padding:6px 10px;border:1px solid rgba(255,64,96,.2)">🚫 ALLERGY ALERT — Do NOT administer: ${ev.allergy}</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function addEvent(ev){
+  allEvents.unshift(ev);
+  const c=allEvents.filter(e=>e.event_type==='CRASH').length;
+  document.getElementById('h-crashes').textContent=c;
+  if(c>0){const avgEta=(allEvents.reduce((s,e)=>s+(e.ems_eta||4.2),0)/allEvents.length).toFixed(1);document.getElementById('h-eta').textContent=avgEta+'m';}
+  renderFeed();
+  if(ev.event_type==='CRASH'){
+    showCrashOnMap(ev);
+    playAlert();
+    activateV2X();
+    fetchTTS(ev.lat,ev.lon);
+  }
+}
+
+function playAlert(){
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const osc=ctx.createOscillator(),gain=ctx.createGain();
+    osc.connect(gain);gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880,ctx.currentTime);
+    osc.frequency.setValueAtTime(660,ctx.currentTime+0.1);
+    osc.frequency.setValueAtTime(880,ctx.currentTime+0.2);
+    gain.gain.setValueAtTime(0.3,ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.4);
+    osc.start(ctx.currentTime);osc.stop(ctx.currentTime+0.4);
+  }catch(e){}
+}
+
+function activateV2X(){
+  document.querySelectorAll('.v2x-status').forEach(el=>{el.textContent='ALERTED';el.style.color='var(--green)'});
+  setTimeout(()=>document.querySelectorAll('.v2x-status').forEach(el=>{el.textContent='STANDBY';el.style.color='var(--text3)'}),8000);
+}
+
+async function fetchTTS(lat,lon){
+  const d=await apiGet(`/api/tts?lat=${lat}&lon=${lon}`);
+  if(d){document.getElementById('tts-lang').textContent=d.language;document.getElementById('tts-msg').textContent='"'+d.message+'"';}
+}
+
+async function triggerCrash(){
+  const d=await apiPost('/api/crash',{event_type:'CRASH',severity:'HIGH'});
+  if(d) addEvent(d);
+}
+async function triggerNearMiss(){
+  const ev={event_id:'NM-'+Date.now(),event_type:'NEAR_MISS',severity:'LOW',lat:12.93+Math.random()*.1,lon:77.59+Math.random()*.1,location_str:'Near-miss logged',hospital:'',ems_eta:0,rider_name:'—',blood_group:'—',allergy:'—',medical_id:'—',timestamp:new Date().toISOString()};
+  addEvent(ev);
+  await apiPost('/api/near-miss',{city:'bengaluru'});
+}
+function clearFeed(){allEvents=[];renderFeed();document.getElementById('h-crashes').textContent='0';}
+
+// SSE
+es.addEventListener('crash',e=>addEvent(JSON.parse(e.data)));
+</script>
+{% endblock %}

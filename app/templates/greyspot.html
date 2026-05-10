@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Grey-Spot{% endblock %}
+{% block content %}
+<div class="page">
+  <!-- City switcher + buttons -->
+  <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--text3);font-weight:600">CITY:</span>
+    <button onclick="switchCity('bengaluru')" id="btn-bengaluru" class="btn btn-green" style="outline:2px solid var(--green)">🇮🇳 Bengaluru</button>
+    <button onclick="switchCity('dhaka')"     id="btn-dhaka"     class="btn" style="border:1px solid var(--border);color:var(--text3);background:transparent">🇧🇩 Dhaka</button>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-amber" onclick="doNearMiss()">+ Near-Miss</button>
+      <button class="btn btn-blue"  onclick="exportCSV()">↓ Export CSV</button>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="metric-grid">
+    <div class="metric"><div class="metric-val" style="color:var(--amber)" id="gs-grey">0</div><div class="metric-label">Grey-Spots</div></div>
+    <div class="metric"><div class="metric-val" style="color:var(--red)"   id="gs-black">0</div><div class="metric-label">Blackspots</div></div>
+    <div class="metric"><div class="metric-val" style="color:var(--blue)"  id="gs-nm">0</div><div class="metric-label">Near-Misses</div></div>
+    <div class="metric"><div class="metric-val" style="color:var(--green)" id="gs-co2">—</div><div class="metric-label">CO₂ Wasted Today</div></div>
+  </div>
+
+  <!-- Map -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">🗺 Grey-Spot Heatmap · <span id="city-label">Bengaluru, India</span> · Click markers for details</div>
+    <div id="gs-map" class="map-wrap" style="height:360px"></div>
+    <div style="display:flex;gap:14px;margin-top:8px">
+      <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:50%;background:var(--red);box-shadow:0 0 5px var(--red)"></div>BLACKSPOT</div>
+      <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 5px var(--amber)"></div>GREY-SPOT</div>
+      <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:50%;background:var(--blue);box-shadow:0 0 5px var(--blue)"></div>NEAR-MISS</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Spot registry -->
+    <div class="flex1">
+      <div class="card">
+        <div class="card-title">Spot Registry</div>
+        <div id="spot-list"></div>
+      </div>
+    </div>
+    <!-- Detail + CO2 -->
+    <div style="width:250px" class="col">
+      <div class="card">
+        <div class="card-title">Spot Detail</div>
+        <div id="spot-detail" style="color:var(--text3);font-size:12px;text-align:center;padding:16px">Click a marker or spot in the list</div>
+      </div>
+      <div class="card">
+        <div class="card-title">🌱 CO₂ Nexus</div>
+        <div id="co2-val" style="font-size:28px;font-weight:700;font-family:monospace;color:var(--green)">—</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Saved/yr · 1,000 nodes</div>
+        <div style="font-size:11px;color:var(--text2);line-height:1.7">43g CO₂ per hard-brake.<br>BIMSTEC Energy Centre.<br>Dual-track: Transport + Climate.</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const CITY_CENTER={bengaluru:[12.9351,77.6245],dhaka:[23.7808,90.4093]};
+const CITY_LABEL={bengaluru:'Bengaluru, India',dhaka:'Dhaka, Bangladesh'};
+const TYPE_COLOR={black:'#ff4060',grey:'#ffaa00',blue:'#4488ff'};
+const TYPE_LABEL={black:'BLACKSPOT',grey:'GREY-SPOT',blue:'NEAR-MISS'};
+
+const map=L.map('gs-map',{center:CITY_CENTER.bengaluru,zoom:12});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
+
+let spots=[], markers=[], currentCity='bengaluru', nmCount=0;
+
+async function loadCity(city){
+  currentCity=city;
+  document.getElementById('city-label').textContent=CITY_LABEL[city];
+  markers.forEach(m=>m.remove()); markers=[];
+  spots=await apiGet('/api/spots?city='+city)||[];
+  map.setView(CITY_CENTER[city],12,{animate:true});
+  renderSpots();
+  addMarkers();
+  updateMetrics();
+  const co2=await apiGet('/api/co2?city='+city);
+  if(co2){
+    document.getElementById('gs-co2').textContent=co2.co2_wasted_today_kg+' kg';
+    document.getElementById('co2-val').textContent=co2.co2_annual_projection_tons+'t';
+  }
+}
+
+function updateMetrics(){
+  document.getElementById('gs-grey').textContent=spots.filter(s=>s.type==='grey').length;
+  document.getElementById('gs-black').textContent=spots.filter(s=>s.type==='black').length;
+  document.getElementById('gs-nm').textContent=(spots.reduce((s,x)=>s+x.near,0))+nmCount;
+}
+
+function addMarkers(){
+  spots.forEach((sp,i)=>{
+    const c=TYPE_COLOR[sp.type]||'#aaa';
+    const sz=sp.type==='black'?22:sp.type==='grey'?17:13;
+    const icon=L.divIcon({className:'',iconSize:[sz*2,sz*2],iconAnchor:[sz,sz],html:`
+      <div style="position:relative;width:${sz*2}px;height:${sz*2}px">
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:${sz*2}px;height:${sz*2}px;border-radius:50%;background:${c}22;border:1.5px solid ${c}55;animation:p${i} 2s infinite"></div>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:${sz}px;height:${sz}px;border-radius:50%;background:${c};box-shadow:0 0 10px ${c}"></div>
+      </div>
+      <style>@keyframes p${i}{0%{transform:translate(-50%,-50%) scale(.9);opacity:.8}100%{transform:translate(-50%,-50%) scale(1.7);opacity:0}}</style>`});
+    const m=L.marker([sp.lat,sp.lon],{icon}).addTo(map)
+      .bindPopup(`<div style="font-family:system-ui;min-width:190px">
+        <b>${sp.name}</b><br>
+        <span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${c}22;border:1px solid ${c};color:${c};font-size:11px;font-weight:700;margin:4px 0">${TYPE_LABEL[sp.type]}</span><br>
+        Near-misses: <b style="color:#00ddff">${sp.near}</b><br>
+        Risk: <b style="color:${c}">${(sp.risk*100).toFixed(0)}%</b><br>
+        Blackspot in 6mo: <b style="color:${sp.pred?'#ff4060':'#00ff88'}">${sp.pred?'YES':'NO'}</b>
+      </div>`,{maxWidth:240})
+      .on('click',()=>selectSpot(sp));
+    markers.push(m);
+  });
+}
+
+function renderSpots(){
+  const list=document.getElementById('spot-list');
+  list.innerHTML=spots.map((s,i)=>{
+    const c=TYPE_COLOR[s.type];
+    return `<div class="spot-item" id="spot-${i}" onclick="selectSpot(spots[${i}])" style="border-left-color:${c}">
+      <div style="display:flex;justify-content:space-between">
+        <span style="font-size:12px;font-weight:600">${s.name}</span>
+        <span style="font-size:10px;font-weight:700;color:${c}">${TYPE_LABEL[s.type]}</span>
+      </div>
+      <div class="spot-meta">
+        <span>Near-misses: <span style="color:var(--cyan)">${s.near}</span></span>
+        <span>Risk: <span style="color:${c}">${(s.risk*100).toFixed(0)}%</span></span>
+        <span style="color:${s.pred?'var(--red)':'var(--green)'}">${s.pred?'⚠ Will blackspot':'✓ Safe'}</span>
+      </div>
+      <div class="progress-wrap" style="margin-top:5px"><div class="progress-fill" style="width:${s.risk*100}%;background:${c}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+function selectSpot(s){
+  const c=TYPE_COLOR[s.type];
+  document.getElementById('spot-detail').innerHTML=`
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px;text-align:left">${s.name}</div>
+    <div style="margin-bottom:10px"><span class="badge" style="background:${c}22;border:1px solid ${c};color:${c}">${TYPE_LABEL[s.type]}</span></div>
+    ${[['Near-misses',s.near],['Risk score',(s.risk*100).toFixed(1)+'%'],['6-month pred',s.pred?'⚠ Becomes blackspot':'✓ Stays grey'],['ML confidence',(s.conf*100).toFixed(0)+'%']].map(([k,v])=>`
+    <div class="detail-row">
+      <span class="detail-key">${k}</span>
+      <span class="detail-val" style="color:${k==='6-month pred'?(s.pred?'var(--red)':'var(--green)'):'var(--text)'}">${v}</span>
+    </div>`).join('')}`;
+}
+
+function switchCity(city){
+  ['bengaluru','dhaka'].forEach(c=>{
+    const b=document.getElementById('btn-'+c);
+    if(c===city){b.className='btn btn-green';b.style.outline='2px solid var(--green)';}
+    else{b.className='btn';b.style.cssText='border:1px solid var(--border);color:var(--text3);background:transparent';}
+  });
+  loadCity(city);
+}
+
+async function doNearMiss(){
+  nmCount++;
+  const idx=Math.floor(Math.random()*Math.min(4,spots.length));
+  if(spots[idx]){spots[idx].near++;spots[idx].risk=Math.min(1,spots[idx].risk+0.005);if(spots[idx].near>80)spots[idx].type='black';}
+  renderSpots(); addMarkers(); updateMetrics();
+  await apiPost('/api/near-miss',{city:currentCity});
+}
+
+function exportCSV(){
+  const rows=[['Name','Type','Near Misses','Risk Score','Blackspot Prediction','Confidence','City'],
+    ...spots.map(s=>[s.name,s.type,s.near,(s.risk*100).toFixed(1)+'%',s.pred?'YES':'NO',(s.conf*100).toFixed(0)+'%',s.city||currentCity])];
+  const csv=rows.map(r=>r.join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download=`neuroshield_greyspot_${currentCity}.csv`;a.click();
+}
+
+es.addEventListener('near_miss',e=>{
+  const d=JSON.parse(e.data);
+  if(d.city===currentCity){nmCount++;updateMetrics();}
+});
+
+loadCity('bengaluru');
+</script>
+{% endblock %}

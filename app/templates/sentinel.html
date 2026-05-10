@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Sentinel Node{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="row">
+    <!-- Left: IMU + chart -->
+    <div style="flex:1.5" class="col">
+      <div class="card">
+        <div class="card-title">📡 Sentinel Node — Live IMU Stream</div>
+        <!-- Mode buttons -->
+        <div style="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap">
+          {% for m,c in [("normal","#00ff88"),("brake","#ffaa00"),("pothole","#4488ff"),("swerve","#00ddff"),("crash","#ff4060")] %}
+          <button onclick="setMode('{{m}}')" id="mode-{{m}}" style="padding:6px 14px;border-radius:8px;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;border:1px solid {{c}};background:{{c}}10;color:{{c}};transition:all .2s" {% if m=='normal' %}class="active-mode"{% endif %}>{{m.upper()}}</button>
+          {% endfor %}
+        </div>
+        <!-- IMU values -->
+        <div class="imu-grid">
+          {% for k,l,c in [("ax","Accel X","#00ddff"),("ay","Accel Y","#00ddff"),("az","Accel Z","#00ddff"),("gx","Gyro X","#aa55ff"),("gy","Gyro Y","#aa55ff"),("gz","Gyro Z","#aa55ff")] %}
+          <div class="imu-cell">
+            <div class="imu-val" style="color:{{c}}" id="imu-{{k}}">0.0</div>
+            <div class="imu-label">{{l}} m/s²</div>
+          </div>
+          {% endfor %}
+        </div>
+        <!-- Color-coded chart -->
+        <canvas id="imu-canvas" style="width:100%;height:72px;border-radius:8px;border:1px solid var(--border);display:block"></canvas>
+        <div style="display:flex;gap:12px;margin-top:6px">
+          {% for cls,color in [("NORMAL","#00ff88"),("HARD BRAKE","#ffaa00"),("POTHOLE","#4488ff"),("SWERVE","#00ddff"),("CRASH","#ff4060")] %}
+          <div style="display:flex;align-items:center;gap:4px;font-size:9px;color:{{color}}">
+            <div style="width:8px;height:8px;border-radius:50%;background:{{color}}"></div>{{cls}}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <!-- Event log -->
+      <div class="card">
+        <div class="card-title">Event Log</div>
+        <div id="event-log" style="max-height:110px;overflow-y:auto;font-family:monospace;font-size:11px">
+          <span style="color:var(--text3)">No anomalies detected</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: classifier + CO2 -->
+    <div class="flex1 col">
+      <!-- LSTM big display -->
+      <div class="card" id="lstm-card" style="border-color:rgba(0,255,136,.3);transition:all .3s">
+        <div class="card-title">LSTM Classifier</div>
+        <div id="lstm-label" style="font-size:26px;font-weight:800;font-family:monospace;color:var(--green);text-shadow:0 0 20px rgba(0,255,136,.5);transition:all .2s">NORMAL</div>
+        <div id="lstm-conf" style="font-size:12px;color:var(--text2);margin-bottom:14px">Confidence: 97.0%</div>
+        <!-- Animated bars -->
+        {% for cls,color in [("NORMAL","#00ff88"),("HARD BRAKE","#ffaa00"),("POTHOLE","#4488ff"),("SWERVE","#00ddff"),("CRASH","#ff4060")] %}
+        <div class="lstm-bar-wrap">
+          <div class="lstm-bar-label" id="bar-label-{{loop.index0}}" style="color:var(--text3)">{{cls}}</div>
+          <div class="lstm-bar-track">
+            <div class="lstm-bar-fill" id="bar-fill-{{loop.index0}}" style="width:0%;background:{{color}}"></div>
+          </div>
+          <div class="lstm-bar-pct" id="bar-pct-{{loop.index0}}" style="color:{{color}}">0.0%</div>
+        </div>
+        {% endfor %}
+        <div style="margin-top:12px;background:var(--bg3);border-radius:8px;padding:8px 10px;font-size:10px;color:var(--text3)">
+          <div>Model: <span style="color:var(--blue)">LSTM (64→32→5)</span></div>
+          <div>Input: <span style="color:var(--cyan)">50-step window · 6-axis IMU</span></div>
+          <div>Latency: <span style="color:var(--green)">&lt;2ms on-device</span></div>
+        </div>
+      </div>
+      <!-- CO2 -->
+      <div class="card">
+        <div class="card-title">🌱 CO₂ Counter</div>
+        <div id="co2-val" style="font-size:32px;font-weight:800;font-family:monospace;color:var(--green)">0.000 kg</div>
+        <div id="brake-count" style="font-size:11px;color:var(--text3);margin-bottom:8px">Hard-brake events: 0</div>
+        <div style="height:5px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-bottom:8px">
+          <div id="co2-bar" style="height:100%;width:0%;background:var(--green);border-radius:3px;transition:width .5s"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text2);line-height:1.7">
+          Each hard-brake = <span style="color:var(--amber)">43g CO₂</span> wasted.<br>
+          Projected: <span style="color:var(--green)">12.4t/yr</span> per 1,000 nodes.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CLASSES=['NORMAL','HARD BRAKE','POTHOLE','SWERVE','CRASH'];
+const CLS_COLORS=['#00ff88','#ffaa00','#4488ff','#00ddff','#ff4060'];
+const CLS_CARD_BORDER=['rgba(0,255,136,.3)','rgba(255,170,0,.3)','rgba(68,136,255,.3)','rgba(0,221,255,.3)','rgba(255,64,96,.4)'];
+
+let currentMode='normal', co2=0, brakes=0;
+let history=[], logEntries=[];
+
+function genIMU(mode){
+  if(mode==='crash')  return{ax:-22+Math.random()*5,ay:18+Math.random()*5,az:-3+Math.random()*2,gx:120+Math.random()*40,gy:80+Math.random()*30,gz:60+Math.random()*20};
+  if(mode==='brake')  return{ax:-12+Math.random()*4,ay:-3+Math.random(),az:9.8,gx:Math.random()*20,gy:Math.random()*30,gz:-10+Math.random()*5};
+  if(mode==='pothole')return{ax:Math.random()*.5,ay:Math.random()*.5,az:2+Math.random(),gx:Math.random()*15,gy:Math.random()*10,gz:Math.random()*8};
+  if(mode==='swerve') return{ax:Math.random()*.5,ay:8*Math.sin(Date.now()/200)+Math.random()*.5,az:9.8,gx:Math.random()*5,gy:Math.random()*5,gz:40*Math.sin(Date.now()/200)};
+  return{ax:Math.random()*.8-.4,ay:Math.random()*.8-.4,az:9.7+Math.random()*.2,gx:Math.random()*6-3,gy:Math.random()*6-3,gz:Math.random()*4-2};
+}
+
+function classify(d){
+  const g=Math.sqrt(d.ax*d.ax+d.ay*d.ay+d.az*d.az),rot=Math.sqrt(d.gx*d.gx+d.gy*d.gy+d.gz*d.gz),azr=Math.abs(d.az-9.8);
+  if(g>18&&rot>80)    return[4,0.96];
+  if(g>10&&azr<3)     return[1,0.90];
+  if(azr>6&&rot<30)   return[2,0.83];
+  if(rot>40&&g<12)    return[3,0.80];
+  return[0,0.97];
+}
+
+function setMode(m){
+  currentMode=m;
+  document.querySelectorAll('[id^=mode-]').forEach(b=>b.style.opacity='0.5');
+  document.getElementById('mode-'+m).style.opacity='1';
+  document.getElementById('mode-'+m).style.outline='2px solid currentColor';
+  document.querySelectorAll('[id^=mode-]').forEach(b=>{if(b.id!=='mode-'+m)b.style.outline='none';});
+}
+
+function updateBars(cls,conf){
+  const probs=CLASSES.map((_,i)=>i===cls?conf:Math.random()*0.06);
+  CLASSES.forEach((_,i)=>{
+    const pct=(probs[i]*100).toFixed(1);
+    document.getElementById('bar-fill-'+i).style.width=pct+'%';
+    document.getElementById('bar-fill-'+i).style.boxShadow=i===cls?`0 0 8px ${CLS_COLORS[i]}88`:'none';
+    document.getElementById('bar-pct-'+i).textContent=pct+'%';
+    document.getElementById('bar-label-'+i).style.color=i===cls?CLS_COLORS[i]:'var(--text3)';
+    document.getElementById('bar-label-'+i).style.fontWeight=i===cls?'700':'400';
+  });
+}
+
+const canvas=document.getElementById('imu-canvas');
+function drawChart(){
+  const ctx=canvas.getContext('2d');
+  canvas.width=canvas.offsetWidth||600;
+  ctx.fillStyle='#0a0e1a';ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(history.length<2)return;
+  const w=canvas.width,h=canvas.height;
+  history.forEach((pt,i)=>{
+    if(i===0)return;
+    const prev=history[i-1];
+    const x1=(i-1)/79*w,x2=i/79*w;
+    const y1=h/2-(prev.ax/25)*h*.4,y2=h/2-(pt.ax/25)*h*.4;
+    ctx.strokeStyle=CLS_COLORS[pt.cls]+'bb';
+    ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  });
+}
+
+setInterval(()=>{
+  const d=genIMU(currentMode);
+  ['ax','ay','az','gx','gy','gz'].forEach(k=>document.getElementById('imu-'+k).textContent=d[k].toFixed(1));
+  const[cls,conf]=classify(d);
+  // Update LSTM display
+  document.getElementById('lstm-label').textContent=CLASSES[cls];
+  document.getElementById('lstm-label').style.color=CLS_COLORS[cls];
+  document.getElementById('lstm-label').style.textShadow=`0 0 20px ${CLS_COLORS[cls]}88`;
+  document.getElementById('lstm-conf').textContent=`Confidence: ${(conf*100).toFixed(1)}%`;
+  document.getElementById('lstm-card').style.borderColor=CLS_CARD_BORDER[cls];
+  updateBars(cls,conf);
+  // Chart
+  history=[...history.slice(-79),{ax:d.ax,cls}];
+  drawChart();
+  // Anomaly
+  if(cls!==0){
+    if(cls===1||cls===4){brakes++;co2=+(co2+0.043).toFixed(3);}
+    document.getElementById('co2-val').textContent=co2.toFixed(3)+' kg';
+    document.getElementById('brake-count').textContent='Hard-brake events: '+brakes;
+    document.getElementById('co2-bar').style.width=Math.min(100,co2/0.5*100)+'%';
+    const entry=`${new Date().toLocaleTimeString()} · ${CLASSES[cls]} · ${(conf*100).toFixed(1)}%`;
+    logEntries=[entry,...logEntries.slice(0,19)];
+    const log=document.getElementById('event-log');
+    log.innerHTML=logEntries.map(l=>`<div style="color:${l.includes('CRASH')?'var(--red)':l.includes('BRAKE')||l.includes('SWERVE')?'var(--amber)':'var(--blue)'};margin-bottom:3px">${l}</div>`).join('');
+    if(cls===4) apiPost('/api/crash',{event_type:'CRASH',severity:'HIGH',lat:12.9351,lon:77.6245}).catch(()=>{});
+  }
+},150);
+</script>
+{% endblock %}

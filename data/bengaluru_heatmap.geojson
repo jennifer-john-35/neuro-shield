@@ -1,0 +1,233 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.6271,
+          12.9182
+        ]
+      },
+      "properties": {
+        "name": "Silk Board Junction",
+        "near_miss_count": 47,
+        "risk_score": 0.82,
+        "spot_type": "grey",
+        "predicted_blackspot": true,
+        "confidence": 1.0,
+        "cluster": 7
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.6632,
+          12.8474
+        ]
+      },
+      "properties": {
+        "name": "Electronic City Flyover",
+        "near_miss_count": 31,
+        "risk_score": 0.68,
+        "spot_type": "grey",
+        "predicted_blackspot": false,
+        "confidence": 0.0,
+        "cluster": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.5946,
+          12.9716
+        ]
+      },
+      "properties": {
+        "name": "Outer Ring Road km 24",
+        "near_miss_count": 89,
+        "risk_score": 0.95,
+        "spot_type": "black",
+        "predicted_blackspot": true,
+        "confidence": 1.0,
+        "cluster": 5
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.6974,
+          12.9591
+        ]
+      },
+      "properties": {
+        "name": "Marathahalli Bridge",
+        "near_miss_count": 38,
+        "risk_score": 0.74,
+        "spot_type": "grey",
+        "predicted_blackspot": true,
+        "confidence": 1.0,
+        "cluster": 3
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.597,
+          13.0358
+        ]
+      },
+      "properties": {
+        "name": "Hebbal Flyover",
+        "near_miss_count": 29,
+        "risk_score": 0.61,
+        "spot_type": "grey",
+        "predicted_blackspot": false,
+        "confidence": 0.0,
+        "cluster": 2
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.5967,
+          12.8956
+        ]
+      },
+      "properties": {
+        "name": "Bannerghatta Road km 8",
+        "near_miss_count": 112,
+        "risk_score": 0.97,
+        "spot_type": "black",
+        "predicted_blackspot": true,
+        "confidence": 1.0,
+        "cluster": 4
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.6476,
+          12.9082
+        ]
+      },
+      "properties": {
+        "name": "HSR 27th Main",
+        "near_miss_count": 14,
+        "risk_score": 0.41,
+        "spot_type": "blue",
+        "predicted_blackspot": false,
+        "confidence": 0.0,
+        "cluster": 7
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.65,
+          13.02
+        ]
+      },
+      "properties": {
+        "name": "Zone 13.02\u00b0N 77.65\u00b0E",
+        "near_miss_count": 55,
+        "risk_score": 0.79,
+        "spot_type": "grey",
+        "predicted_blackspot": true,
+        "confidence": 1.0,
+        "cluster": 6
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.58,
+          12.88
+        ]
+      },
+      "properties": {
+        "name": "Zone 12.88\u00b0N 77.58\u00b0E",
+        "near_miss_count": 18,
+        "risk_score": 0.38,
+        "spot_type": "blue",
+        "predicted_blackspot": false,
+        "confidence": 0.0,
+        "cluster": 4
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.61,
+          12.93
+        ]
+      },
+      "properties": {
+        "name": "Zone 12.93\u00b0N 77.61\u00b0E",
+        "near_miss_count": 63,
+        "risk_score": 0.85,
+        "spot_type": "grey",
+        "predicted_blackspot": true,
+        "confidence": 1.0,
+        "cluster": 0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.56,
+          12.99
+        ]
+      },
+      "properties": {
+        "name": "Zone 12.99\u00b0N 77.56\u00b0E",
+        "near_miss_count": 22,
+        "risk_score": 0.52,
+        "spot_type": "blue",
+        "predicted_blackspot": false,
+        "confidence": 0.0,
+        "cluster": 5
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.69,
+          12.86
+        ]
+      },
+      "properties": {
+        "name": "Zone 12.86\u00b0N 77.69\u00b0E",
+        "near_miss_count": 70,
+        "risk_score": 0.88,
+        "spot_type": "grey",
+        "predicted_blackspot": true,
+        "confidence": 1.0,
+        "cluster": 1
+      }
+    }
+  ]
+}
